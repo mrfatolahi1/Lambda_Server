@@ -1,0 +1,172 @@
+version: '3'
+services:
+  spark-master:
+    image: bde2020/spark-master:3.1.2-hadoop3.2
+    container_name: spark-master
+    hostname: spark_master
+    user: root
+    ports:
+      - "8080:8080"
+      - "7077:7077"
+      - "4132:4040"
+    environment:
+      - INIT_DAEMON_STEP=setup_spark
+      - SPARK_MASTER_HOST=172.18.0.2
+      - SPARK_MASTER_PORT=7077
+    volumes:
+      - ./:/project
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.2
+  spark-worker-1:
+    image: bde2020/spark-worker:3.1.2-hadoop3.2
+    container_name: spark-worker-1
+    hostname: spark_worker_1
+    depends_on:
+      - spark-master
+    ports:
+      - "8081:8081"
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKLOAD=worker
+      - SPARK_LOCAL_IP=172.18.0.3
+      - SPARK_WORKER_PORT=8081
+    volumes:
+      - ./:/project
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.3
+  spark-worker-2:
+    image: bde2020/spark-worker:3.1.2-hadoop3.2
+    container_name: spark-worker-2
+    hostname: spark_worker_2
+
+    depends_on:
+      - spark-master
+    ports:
+      - "8082:8081"
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKLOAD=worker
+      - SPARK_WORKER_PORT=8082
+      - SPARK_LOCAL_IP=172.18.0.4
+    volumes:
+      - ./:/project
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.4
+  spark-worker-3:
+    image: bde2020/spark-worker:3.1.2-hadoop3.2
+    container_name: spark-worker-3
+    hostname: spark_worker_3
+
+    depends_on:
+      - spark-master
+    ports:
+      - "8083:8081"
+    environment:
+      - SPARK_MASTER=spark://spark-master:7077
+      - SPARK_WORKLOAD=worker
+      - SPARK_WORKER_PORT=8083
+      - SPARK_LOCAL_IP=172.18.0.9
+    volumes:
+      - ./:/project
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.9
+  spark-history-server:
+      image: bde2020/spark-history-server:3.1.2-hadoop3.2
+      container_name: spark-history-server
+      depends_on:
+        - spark-master
+      ports:
+        - "18081:18081"
+      volumes:
+        - ./tmp/spark-events-local:/tmp/spark-events
+        - ./:/project
+      networks:
+        datapipeline:
+          ipv4_address: 172.18.0.5
+  zookeeper:
+    image: 'bitnami/zookeeper:latest'
+    container_name: zookeeper
+    hostname: zookeeper
+    ports:
+      - '2181:2181'
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.6
+  kafka:
+    image: 'bitnami/kafka:3.1'
+    container_name: kafka
+    hostname: kafka
+    ports:
+      - '9092:9092'
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://172.18.0.7:9092
+      - KAFKA_ADVERTISED_HOST_NAME=172.18.0.7
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CREATE_TOPICS="topic1:5:1,topic2:5:1"
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_ADVERTISED_PORT=9092
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+    depends_on:
+      - zookeeper
+    volumes:
+      - ./:/project
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.7
+  cassandra:
+    image: 'bitnami/cassandra:4.0.4'
+    container_name: cassandra
+    hostname: cassandra
+    ports:
+      - '9042:9042'
+    volumes:
+      - ./:/project
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.8
+
+  kafdrop:
+    image: obsidiandynamics/kafdrop
+    restart: "no"
+    ports:
+      - "9000:9000"
+    environment:
+      KAFKA_BROKERCONNECT: "kafka:9092"
+      JVM_OPTS: "-Xms16M -Xmx48M -Xss180K -XX:-TieredCompilation -XX:+UseStringDeduplication -noverify"
+    depends_on:
+      - "kafka"
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.10
+  zeppelin:
+    image: apache/zeppelin:0.10.0
+    ports:
+      - "8380:8080"
+    volumes:
+      - ./spark:/zeppelin/spark
+      - ./notebooks:/zeppelin/notebook
+    environment:
+      - "MASTER=spark://spark-master:7077"
+      - "SPARK_MASTER=spark://spark-master:7077"
+      - "SPARK_HOME=/zeppelin/spark"
+      - "ZEPPELIN_LOCAL_IP=172.18.0.11"
+    depends_on:
+      - "spark-master"
+    networks:
+      datapipeline:
+        ipv4_address: 172.18.0.11
+networks:
+    datapipeline:
+        driver: bridge
+        ipam:
+            driver: default
+            config:
+                - subnet: "172.18.0.0/16"
